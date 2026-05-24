@@ -122,6 +122,39 @@ mkdir -p "$BUILD_DIR"
 
 cp -r "$TEX_DIST_DIR/." "$BUILD_DIR/"
 
+# --- Lower JS syntax for Chromium 56 (Tizen 5.0 baseline) ------------
+# Tizen 5.0 ships Chromium 56 (early 2017). Angular 16 emits ES2020+
+# syntax — optional chaining `?.`, nullish coalescing `??`, class
+# fields, etc. — that Chromium 56 cannot parse, producing
+# "Unexpected token" errors at app start (proven on a UE55RU7020).
+#
+# esbuild's --target=chrome56 lowers these forms to ES5-compatible
+# syntax without rebuilding from source. Runtime API gaps (Array.flat,
+# Promise.allSettled, etc.) are NOT polyfilled here — Angular's own
+# polyfills.js handles most of them; if we hit a runtime API error
+# we'll add core-js or similar.
+#
+# Done BEFORE the wrapper/extras overlay so our hand-written ES5 files
+# don't get re-processed.
+ESBUILD="$TEX_SRC/node_modules/.bin/esbuild"
+if [[ -x "$ESBUILD" ]]; then
+    log "lowering JS syntax to chrome56 with esbuild"
+    LOWERED=0
+    while IFS= read -r -d '' js; do
+        tmp="${js}.lowered"
+        if "$ESBUILD" "$js" --target=chrome56 --bundle=false --minify --log-level=warning >"$tmp" 2>/dev/null; then
+            mv "$tmp" "$js"
+            LOWERED=$((LOWERED + 1))
+        else
+            rm -f "$tmp"
+            warn "esbuild failed on $(basename "$js") — leaving original"
+        fi
+    done < <(find "$BUILD_DIR" -type f -name '*.js' -print0)
+    log "lowered $LOWERED .js file(s)"
+else
+    warn "esbuild not found at $ESBUILD — skipping syntax lowering (app will likely fail to parse on Tizen 5)"
+fi
+
 # Wrapper + extras override anything with the same name.
 cp "$WRAPPER/config.xml"       "$BUILD_DIR/config.xml"
 cp "$WRAPPER/icon.png"         "$BUILD_DIR/icon.png"
