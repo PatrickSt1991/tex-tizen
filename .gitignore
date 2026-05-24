@@ -1,0 +1,19 @@
+# build artifacts
+build/
+release/
+*.wgt
+
+# upstream clone — repopulated by build.sh
+tex-src/
+
+# tizen-studio CLI scratch
+tizen-studio/
+tizen-studio-data/
+.buildResult/
+
+# editor / OS noise
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

@@ -1,0 +1,208 @@
+name: Build TeX Tizen
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'tizen/**'
+      - '.github/workflows/build-tizen.yml'
+
+permissions:
+  contents: write
+
+env:
+  TIZEN_STUDIO_VER: '5.5'
+  PROFILE_NAME: 'TeX'
+  CERT_NAME: 'texCert'
+  CERT_PASSWORD: '1234'
+  DIST_SIGNER_PASSWORD: 'tizenpkcs12passfordsigner'
+  TEX_REPO: 'https://github.com/OGHaza/TeX.git'
+  TEX_REF: 'main'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout this repo
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      # 2. Setup Node.js — needed for building TeX (Angular) and for the
+      #    version-extraction step.
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # 3. Install required apt packages
+      - name: Install required packages
+        run: sudo apt-get update && sudo apt-get install -y expect imagemagick
+
+      # 4. Download Tizen Studio
+      - name: Download Tizen Studio ${{ env.TIZEN_STUDIO_VER }}
+        run: |
+          curl -L -o tizen-installer \
+            "https://download.tizen.org/sdk/Installer/tizen-studio_${TIZEN_STUDIO_VER}/web-cli_Tizen_Studio_${TIZEN_STUDIO_VER}_ubuntu-64.bin"
+
+      # 5. Install Tizen Studio
+      - name: Install Tizen Studio
+        run: |
+          chmod +x tizen-installer
+          ./tizen-installer --accept-license "${GITHUB_WORKSPACE}/tizen-studio"
+          rm ./tizen-installer
+
+      # 6. Create signing certificate + security profile
+      - name: Create Tizen certificate and profile
+        run: |
+          TIZEN="${GITHUB_WORKSPACE}/tizen-studio/tools/ide/bin/tizen"
+          "$TIZEN" certificate \
+            -a "$PROFILE_NAME" \
+            -p "$CERT_PASSWORD" \
+            -c US -s NA -ct NA -o TeX \
+            -n TeXTizen \
+            -e tex@example.org \
+            -f "$CERT_NAME"
+          "$TIZEN" security-profiles add \
+            -n "$PROFILE_NAME" \
+            -a "${GITHUB_WORKSPACE}/tizen-studio-data/keystore/author/${CERT_NAME}.p12" \
+            -p "$CERT_PASSWORD"
+          "$TIZEN" cli-config "profiles.path=${GITHUB_WORKSPACE}/tizen-studio-data/profile/profiles.xml"
+
+      # 7. Run our build (prepare + tizen build-web only — packaging is
+      #    interactive and is done by the expect script in the next step).
+      #    build.sh clones TeX, runs `npm ci && npm run build`, then wraps
+      #    the resulting dist/ in our Tizen layout.
+      - name: Run build.sh --no-package
+        env:
+          TIZEN_BIN: ${{ github.workspace }}/tizen-studio/tools/ide/bin/tizen
+          TIZEN_PROFILE: ${{ env.PROFILE_NAME }}
+          TEX_REPO: ${{ env.TEX_REPO }}
+          TEX_REF: ${{ env.TEX_REF }}
+        run: bash tizen/build.sh --no-package
+
+      # 8. Inline the cert passwords into profiles.xml so the expect
+      #    script only has to confirm them. (The CLI prompts for them
+      #    interactively otherwise.)
+      - name: Prepare profiles.xml for unattended signing
+        run: |
+          PROFILES_XML="${GITHUB_WORKSPACE}/tizen-studio-data/profile/profiles.xml"
+          sed -i "s|${GITHUB_WORKSPACE}/tizen-studio-data/keystore/author/${CERT_NAME}.pwd|${CERT_PASSWORD}|g" "$PROFILES_XML"
+          sed -i "s|${GITHUB_WORKSPACE}/tizen-studio-data/tools/certificate-generator/certificates/distributor/tizen-distributor-signer.pwd|${DIST_SIGNER_PASSWORD}|g" "$PROFILES_XML"
+          sed -i 's|password=""|password="'"${DIST_SIGNER_PASSWORD}"'"|g' "$PROFILES_XML"
+
+      # 9. expect-driven `tizen package` (it still prompts; expect feeds it)
+      - name: Package WGT (expect-driven)
+        env:
+          TIZEN_BIN: ${{ github.workspace }}/tizen-studio/tools/ide/bin/tizen
+          BUILD_DIR: ${{ github.workspace }}/build
+        run: |
+          cat > package.exp << 'EOF'
+          #!/usr/bin/expect -f
+          set timeout 300
+          spawn $env(TIZEN_BIN) package -t wgt -s $env(PROFILE_NAME) -- $env(BUILD_DIR)/.buildResult
+          expect {
+            "Author password:"          { send "$env(CERT_PASSWORD)\r"; exp_continue }
+            "Save author password"      { send "n\r"; exp_continue }
+            "Distributor1 password:"    { send "$env(DIST_SIGNER_PASSWORD)\r"; exp_continue }
+            "Save distributor1 password" { send "n\r"; exp_continue }
+            eof
+          }
+          catch wait result
+          set exit_code [lindex $result 3]
+          exit $exit_code
+          EOF
+          chmod +x package.exp
+          PROFILE_NAME="$PROFILE_NAME" \
+          CERT_PASSWORD="$CERT_PASSWORD" \
+          DIST_SIGNER_PASSWORD="$DIST_SIGNER_PASSWORD" \
+            ./package.exp
+
+      # 10. Stage the artifact under release/
+      - name: Move .wgt to release/
+        run: |
+          mkdir -p release
+          WGT=$(find "${GITHUB_WORKSPACE}/build/.buildResult" -maxdepth 1 -name '*.wgt' -print -quit)
+          if [ -z "$WGT" ]; then
+            echo "::error::tizen package did not produce a .wgt"
+            ls -la "${GITHUB_WORKSPACE}/build/.buildResult" || true
+            exit 1
+          fi
+          mv "$WGT" release/TeX-Tizen.wgt
+          ls -la release/
+
+      # 11. Always upload the artifact (downloadable from the workflow run page)
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TeX-Tizen-wgt
+          path: release/TeX-Tizen.wgt
+          if-no-files-found: error
+
+      # 12. Compute version + timestamp for the release tag
+      - name: Compute release tag
+        id: tag
+        run: |
+          # Pull TeX's upstream package.json version (the wrapper has no
+          # version of its own — the .wgt's version comes from upstream).
+          VERSION=$(node -p "require('./tex-src/package.json').version" 2>/dev/null || echo "0.0.0")
+          DATE=$(date +'%Y-%m-%d-%H%M')
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "date_tag=${DATE}"   >> "$GITHUB_OUTPUT"
+          echo "date_pretty=$(date +'%Y-%m-%d %H:%M')" >> "$GITHUB_OUTPUT"
+
+      # 13. Publish a Release.
+      - name: Create GitHub Release
+        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: 'tex-tizen-v${{ steps.tag.outputs.version }}-${{ steps.tag.outputs.date_tag }}'
+          name: 'TeX Tizen v${{ steps.tag.outputs.version }} (${{ steps.tag.outputs.date_pretty }})'
+          files: |
+            release/TeX-Tizen.wgt
+            tools/debug-server.py
+          body: |
+            ## TeX for Samsung Tizen TV
+
+            Built ${{ steps.tag.outputs.date_pretty }} from TeX ${{ steps.tag.outputs.version }}.
+
+            Wraps the [TeX](https://github.com/OGHaza/TeX) Kodi web
+            interface in a Tizen `.wgt` and routes video playback
+            through Tizen AVPlay so files stream and decode on the TV
+            itself, not on the Kodi server.
+
+            ### Install
+
+            1. Enable **Developer Mode** on your Samsung TV
+               ([instructions](https://developer.samsung.com/smarttv/develop/getting-started/using-sdk/tv-device.html)).
+            2. Sideload `TeX-Tizen.wgt` via
+               [Jellyfin2Samsung](https://github.com/Jellyfin2Samsung/Samsung-Jellyfin-Installer/releases/latest),
+               Tizen Studio or `sdb`.
+            3. Launch the app. On first run a setup screen asks for your
+               Kodi host/port, username and password — it pings Kodi
+               before continuing, so wrong credentials fail fast.
+
+            ### Optional: live debug log
+
+            If anything misbehaves, the app can stream `console.log`,
+            errors, click events and XHR responses to a dev-machine
+            terminal over WebSocket. Two steps:
+
+            1. Grab `debug-server.py` (attached to this release) and run
+               it on a machine the TV can reach:
+               ```
+               python3 debug-server.py
+               ```
+               Stdlib-only — no `pip install`. Default port 9999.
+
+            2. On the TV's first-launch setup screen, fill in the
+               **Debug host** field as `<your-pc-ip>:9999`. Press
+               Connect.
+
+            ### Build details
+            - TeX base: ${{ steps.tag.outputs.version }}
+            - Branch: main
+            - Commit: ${{ github.sha }}
+          draft: false
+          prerelease: false
