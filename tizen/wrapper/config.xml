@@ -9,8 +9,11 @@
          feature set the bootstrap relies on (Chromium 56-era WebKit:
          capture-phase event listeners with stopImmediatePropagation,
          AbortController, fetch + Headers, scrollIntoView). -->
-    <tizen:application id="textzn.TeX"
-                       package="textzn"
+    <!-- Tizen requires the package portion of the app id to be exactly
+         10 alphanumeric characters. `textzn` (6 chars) was rejected
+         with WAS parsing error 118/-19 on install. -->
+    <tizen:application id="texkoditzn.TeX"
+                       package="texkoditzn"
                        required_version="5.0"/>
 
     <content src="index.html"/>
