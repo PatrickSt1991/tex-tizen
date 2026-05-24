@@ -98,8 +98,13 @@ else
         (cd "$TEX_SRC" && npm install --legacy-peer-deps)
     fi
 
-    log "npm run build in tex-src/"
-    (cd "$TEX_SRC" && npm run build)
+    # Bypass `npm run build`: TeX's package.json declares the build
+    # script as `SET NODE_ENV=production && ng build`, which is cmd.exe
+    # syntax. POSIX sh has no `SET` builtin so npm run build fails with
+    # exit 127 on Linux runners. Invoke the local ng directly with
+    # POSIX env-var syntax.
+    log "ng build in tex-src/ (bypassing upstream Windows-only npm script)"
+    (cd "$TEX_SRC" && NODE_ENV=production ./node_modules/.bin/ng build)
 fi
 
 # Angular usually emits dist/<project>/ — find the first dir under dist/
