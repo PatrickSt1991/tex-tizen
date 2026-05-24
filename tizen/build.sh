@@ -87,11 +87,15 @@ else
         git clone --depth 1 --branch "$TEX_REF" "$TEX_REPO" "$TEX_SRC"
     fi
 
-    log "npm ci in tex-src/"
+    # --legacy-peer-deps: TeX's package.json mixes peer-dep ranges that npm 10
+    # refuses to reconcile (e.g. Angular 16 alongside an Angular-15-only
+    # @fortawesome/angular-fontawesome). The flag tells npm to use the old
+    # npm 6 resolver, which is exactly what TeX is developed against.
+    log "npm ci in tex-src/ (legacy-peer-deps)"
     if [[ -f "$TEX_SRC/package-lock.json" ]]; then
-        (cd "$TEX_SRC" && npm ci)
+        (cd "$TEX_SRC" && npm ci --legacy-peer-deps)
     else
-        (cd "$TEX_SRC" && npm install)
+        (cd "$TEX_SRC" && npm install --legacy-peer-deps)
     fi
 
     log "npm run build in tex-src/"
