@@ -23,6 +23,17 @@
  * JSON-RPC contract and Tizen platform quirks. Anything TeX-specific
  * lives in TeX itself.
  */
+
+// Polyfill globalThis. Chromium 56 (Tizen 5.0) predates it (added in
+// Chrome 71). Angular's polyfills.js and main.js reference globalThis
+// at module-load time and throw ReferenceError immediately without it.
+// Must run before any other script — which it does, because the
+// bootstrap is the first <script> in <head> and the rest of TeX's
+// scripts are deferred until activateDeferredScripts() fires below.
+if (typeof window.globalThis === 'undefined') {
+  window.globalThis = window;
+}
+
 (function () {
   'use strict';
 
