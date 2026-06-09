@@ -147,18 +147,21 @@ if (typeof Object.fromEntries !== 'function') {
     // handler is wired with addEventListener after appendChild below.
     wrap.innerHTML =
       '<div style="display:flex;align-items:center;margin:0 0 4px">' +
-        // Logo tile: orange gradient with a serif "T" inside. Last
-        // attempt put an <img src="icon.png"> on top of the gradient,
-        // which covered it entirely (icon.png is the chorus2 blue
-        // placeholder). Rendering a styled letter directly inside the
-        // gradient div is what makes the colour actually visible.
+        // Logo tile: orange gradient with the full "TeX" wordmark in
+        // the classic TeX style (middle E sits lower and slightly
+        // smaller than T and X). Rendered directly in the gradient div
+        // so the colour actually shows.
         '<div style="width:48px;height:48px;border-radius:11px;' +
         'background:linear-gradient(135deg,#f97316,#c2410c);' +
         'display:flex;align-items:center;justify-content:center;' +
         'box-shadow:0 3px 10px rgba(249,115,22,.22);' +
-        'color:#fff;font-weight:700;font-size:30px;' +
-        'font-family:Georgia,\'Times New Roman\',serif;' +
-        'letter-spacing:-1px">T</div>' +
+        'color:#fff;font-weight:700;font-size:22px;line-height:1;' +
+        'font-family:Georgia,\'Times New Roman\',serif">' +
+          'T' +
+          '<span style="font-size:.78em;vertical-align:-.18em;' +
+          'margin:0 -.07em;display:inline-block">E</span>' +
+          'X' +
+        '</div>' +
         '<h1 style="margin:0 0 0 18px;font-size:30px;font-weight:700;' +
         'color:#ffffff;letter-spacing:-.01em;line-height:1.1">TeX <span style="font-weight:400;color:#9aa6b8">for Tizen</span></h1>' +
       '</div>' +

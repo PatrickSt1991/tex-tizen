@@ -219,10 +219,10 @@ grep -q "text/x-tizen-deferred" "$INDEX" || warn "no scripts were deferred — i
 # resize of the committed icon if ImageMagick isn't available.
 
 if command -v convert >/dev/null 2>&1; then
-    log "generating launcher icon (orange tile + T) with ImageMagick"
+    log "generating launcher icon (orange tile + TeX wordmark) with ImageMagick"
     convert -size 117x117 gradient:'#f97316-#c2410c' \
-        -gravity center -fill white -pointsize 80 \
-        -annotate +0+0 'T' \
+        -gravity center -fill white -pointsize 48 \
+        -annotate +0+0 'TeX' \
         "$BUILD_DIR/icon.png"
 elif command -v ffmpeg >/dev/null 2>&1; then
     log "no ImageMagick — resizing committed icon with ffmpeg (will still look blue)"
