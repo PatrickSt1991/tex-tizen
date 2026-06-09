@@ -83,6 +83,22 @@ if (!Array.prototype.flatMap) {
   });
 }
 
+// Object.fromEntries — Chrome 73+. Angular Animations' keyframe
+// converter uses it; without it animations blow up mid-render.
+if (typeof Object.fromEntries !== 'function') {
+  tzShim(Object, 'fromEntries', function (entries) {
+    var obj = {};
+    if (entries == null) return obj;
+    var iter = typeof entries.forEach === 'function'
+      ? entries
+      : Array.prototype.slice.call(entries);
+    iter.forEach(function (pair) {
+      if (pair) obj[pair[0]] = pair[1];
+    });
+    return obj;
+  });
+}
+
 (function () {
   'use strict';
 
@@ -131,10 +147,13 @@ if (!Array.prototype.flatMap) {
     // handler is wired with addEventListener after appendChild below.
     wrap.innerHTML =
       '<div style="display:flex;align-items:center;margin:0 0 4px">' +
+        // Logo tile in TeX warm-orange, distinct from Kodi blue so the
+        // setup screen reads as "TeX for Tizen" rather than yet another
+        // Kodi-branded wrapper.
         '<div style="width:48px;height:48px;border-radius:11px;overflow:hidden;' +
-        'background:linear-gradient(135deg,#4ea1ff,#2563eb);' +
+        'background:linear-gradient(135deg,#f97316,#c2410c);' +
         'display:flex;align-items:center;justify-content:center;' +
-        'box-shadow:0 3px 10px rgba(78,161,255,.22)">' +
+        'box-shadow:0 3px 10px rgba(249,115,22,.22)">' +
           '<img src="icon.png" alt="" id="tz-logo" ' +
           'style="width:48px;height:48px;display:block">' +
         '</div>' +
@@ -700,10 +719,26 @@ if (!Array.prototype.flatMap) {
     var origSend = xhr.send;
     var _method, _url, _body;
     xhr.open = function (method, url) {
+      var origUrl = url;
       if (isLocalish(url)) url = resolveUrl(url);
       _method = method; _url = url;
       var args = [method, url].concat(Array.prototype.slice.call(arguments, 2));
-      var ret = origOpen.apply(this, args);
+      var ret;
+      try {
+        ret = origOpen.apply(this, args);
+      } catch (e) {
+        // Surface the URL that the native XHR rejected — without this
+        // we only see "Invalid URL" with no clue what URL was at fault.
+        try {
+          dbg.send('xhr.open.error', {
+            method: method,
+            origUrl: String(origUrl),
+            resolvedUrl: String(url),
+            msg: String((e && e.message) || e)
+          });
+        } catch (_) {}
+        throw e;
+      }
       try {
         this.setRequestHeader('Authorization', KODI_AUTH);
       } catch (e) { /* setRequestHeader can fail on certain states; ignore */ }
