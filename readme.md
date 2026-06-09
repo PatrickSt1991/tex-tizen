@@ -36,8 +36,8 @@ adds:
 
 3. **Sideload the `.wgt`**. Either:
 
-   - via [Jellyfin2Samsung](https://github.com/Jellyfin2Samsung/Samsung-Jellyfin-Installer/releases/latest)
-     (works for any signed Tizen `.wgt`),
+   - via [Apps2Samsung](https://apps2samsung.madebypatrick.nl/)
+     (the friendly path — handles any signed Tizen `.wgt`),
    - via Tizen Studio's Device Manager → Permit to install → Drag-drop, or
    - from the command line:
      ```bash

@@ -163,46 +163,98 @@ jobs:
             release/TeX-Tizen.wgt
             tools/debug-server.py
           body: |
-            ## TeX for Samsung Tizen TV
+            ## Kodi on your Samsung TV, with hardware video
 
             Built ${{ steps.tag.outputs.date_pretty }} from TeX ${{ steps.tag.outputs.version }}.
 
-            Wraps the [TeX](https://github.com/OGHaza/TeX) Kodi web
-            interface in a Tizen `.wgt` and routes video playback
-            through Tizen AVPlay so files stream and decode on the TV
-            itself, not on the Kodi server.
+            Wraps [TeX](https://github.com/OGHaza/TeX), the modern
+            Angular-based Kodi web UI, into a sideloadable Samsung
+            Tizen `.wgt` and quietly hijacks the video pipeline so
+            playback goes through **Tizen's hardware AVPlay decoder**
+            instead of the Kodi server's own screen. Your library,
+            your remote, hardware HEVC / AC3 / EAC3 decode, no extra
+            hardware.
+
+            ### What's in here
+
+            - **One-time setup.** Enter host, port, Kodi credentials,
+              press Connect. The wrapper pings Kodi up-front so wrong
+              creds fail fast — no blank loading screens.
+            - **Auth everywhere.** XHR, fetch, WebSocket and `<img src>`
+              loads all get HTTP Basic auth injected automatically.
+              The wrapper knows nothing about TeX internals — it
+              patches at the network layer.
+            - **Hardware video playback.** `Player.Open` JSON-RPC calls
+              are intercepted at the wire; the file path is resolved via
+              `Files.PrepareDownload` and handed to `webapis.avplay`
+              with userinfo-embedded auth.
+            - **Audio "now playing" card** for music files (AVPlay's
+              video plane is empty for audio-only, otherwise you'd just
+              see black).
+            - **Virtual mouse cursor** with acceleration on held arrow
+              keys — Tizen 5 ships no spatial navigation for web apps,
+              so we render our own pointer and dispatch real mouse
+              events at it.
+            - **Live debug stream.** Optional WebSocket sink
+              (`debug-server.py`, stdlib-only Python, attached below)
+              prints every `console.*`, uncaught exception, click, and
+              XHR response with timestamps. Indispensable on a device
+              with no DevTools.
+
+            ### Surviving Chromium 56
+
+            Tizen 5.0 ships **Chromium 56** (early 2017). Angular 16
+            emits **ES2020+**. This build makes them coexist via:
+
+            - `esbuild --target=chrome56` over every built JS file —
+              lowers optional chaining, nullish coalescing, class
+              fields, static blocks to ES5-equivalents
+            - Hand-rolled non-enumerable polyfills for `globalThis`,
+              `queueMicrotask`, `Array.flat`/`flatMap`, `Object.fromEntries`
+            - WebSocket + XHR URL fixups for the broken `file://`-derived
+              URLs that upstream code emits on a `.wgt` origin
 
             ### Install
 
-            1. Enable **Developer Mode** on your Samsung TV
-               ([instructions](https://developer.samsung.com/smarttv/develop/getting-started/using-sdk/tv-device.html)).
+            1. Enable Developer Mode on the TV
+               ([Samsung instructions](https://developer.samsung.com/smarttv/develop/getting-started/using-sdk/tv-device.html)).
             2. Sideload `TeX-Tizen.wgt` via
-               [Jellyfin2Samsung](https://github.com/Jellyfin2Samsung/Samsung-Jellyfin-Installer/releases/latest),
-               Tizen Studio or `sdb`.
-            3. Launch the app. On first run a setup screen asks for your
-               Kodi host/port, username and password — it pings Kodi
-               before continuing, so wrong credentials fail fast.
+               [Apps2Samsung](https://apps2samsung.madebypatrick.nl/)
+               (the friendly path), Tizen Studio's Device Manager, or
+               `sdb install`.
+            3. Launch, enter Kodi host / port / username / password,
+               press Connect. Every subsequent launch goes straight
+               into TeX.
 
-            ### Optional: live debug log
+            ### Requirements
 
-            If anything misbehaves, the app can stream `console.log`,
-            errors, click events and XHR responses to a dev-machine
-            terminal over WebSocket. Two steps:
+            - Samsung TV with **Tizen 5.0 or later** (~2019 RU-series
+              and newer)
+            - Kodi v17+ on the LAN, with the HTTP web interface enabled
+              and Basic auth credentials set
 
-            1. Grab `debug-server.py` (attached to this release) and run
-               it on a machine the TV can reach:
-               ```
-               python3 debug-server.py
-               ```
-               Stdlib-only — no `pip install`. Default port 9999.
+            ### Known limits
 
-            2. On the TV's first-launch setup screen, fill in the
-               **Debug host** field as `<your-pc-ip>:9999`. Press
-               Connect.
+            The wrapper can't expose what Kodi's JSON-RPC API doesn't:
+
+            - Kodi addons (`plugin://` URIs — resolved server-side
+              inside Kodi's Python interpreter; no playable stream
+              ever leaves)
+            - PVR / Live TV backends
+            - DRM-protected content
+            - Casting / DLNA out to other devices
+
+            If you need any of those, run Jellyfin + [jellyfin-tizen](https://github.com/jellyfin/jellyfin-tizen)
+            instead.
+
+            ### Files
+
+            - **`TeX-Tizen.wgt`** — the app, signed and ready to sideload
+            - **`debug-server.py`** — optional live debug log sink, any
+              machine with Python 3
 
             ### Build details
             - TeX base: ${{ steps.tag.outputs.version }}
-            - Branch: main
             - Commit: ${{ github.sha }}
           draft: false
           prerelease: false
