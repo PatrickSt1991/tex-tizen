@@ -31,39 +31,56 @@
 // before any other script — which they do, because the bootstrap is
 // the first <script> in <head> and TeX's bundles stay deferred until
 // activateDeferredScripts() fires later in this file.
+//
+// All installed via Object.defineProperty with enumerable:false so
+// they match the native methods exactly. Direct assignment
+// (`Array.prototype.flat = ...`) defaults to enumerable:true, which
+// makes the polyfills show up in `for (var k in arr)` loops and
+// breaks any code that assumes only own indices/keys are enumerated.
+// That bug surfaced as TeX's i18n loader sending requests to
+// `/assets/i18n/<function-source>.json`.
+
+function tzShim(obj, name, value) {
+  Object.defineProperty(obj, name, {
+    value: value,
+    configurable: true,
+    writable: true,
+    enumerable: false
+  });
+}
 
 // globalThis — Chrome 71+. Angular's polyfills.js/main.js reference it
 // at module-load time and throw ReferenceError immediately without it.
 if (typeof window.globalThis === 'undefined') {
-  window.globalThis = window;
+  tzShim(window, 'globalThis', window);
 }
 
 // queueMicrotask — Chrome 71+. Angular Zone.js calls this on every
 // change-detection tick; without it, every onStable emission throws
 // and nothing renders.
 if (typeof window.queueMicrotask !== 'function') {
-  window.queueMicrotask = function (cb) {
+  tzShim(window, 'queueMicrotask', function (cb) {
     Promise.resolve().then(cb).catch(function (e) {
       setTimeout(function () { throw e; }, 0);
     });
-  };
+  });
 }
 
 // Array.prototype.flat / flatMap — Chrome 69+. Modern Angular DI
 // factories use flat() on argument lists.
 if (!Array.prototype.flat) {
-  Array.prototype.flat = function (depth) {
+  tzShim(Array.prototype, 'flat', function (depth) {
     var d = depth === undefined ? 1 : Math.floor(Number(depth)) || 0;
     if (d < 1) return Array.prototype.slice.call(this);
     return Array.prototype.reduce.call(this, function (acc, val) {
       return acc.concat(Array.isArray(val) ? val.flat(d - 1) : val);
     }, []);
-  };
+  });
 }
 if (!Array.prototype.flatMap) {
-  Array.prototype.flatMap = function (cb, thisArg) {
+  tzShim(Array.prototype, 'flatMap', function (cb, thisArg) {
     return Array.prototype.map.call(this, cb, thisArg).flat();
-  };
+  });
 }
 
 (function () {
@@ -763,13 +780,15 @@ if (!Array.prototype.flatMap) {
     }
 
     function PatchedWS(url, protocols) {
-      // On Tizen the page is served as file:///, so location.hostname is
-      // empty and an app may build ws://:9090/... — unparseable by new
-      // URL() and rejected by new WebSocket(). Pre-substitute the host
-      // before parsing.
-      if (/^wss?:\/\/:\d/.test(url)) {
-        url = url.replace(/^(wss?:\/\/):/, '$1' + cfg.host + ':');
-      }
+      // On Tizen the page is served as file:///, so when an upstream
+      // app derives its WS URL from window.location parts, it ends up
+      // with the page protocol AND an empty host. Observed in the
+      // wild: ws://:9090/jsonrpc (location.protocol mapped http→ws but
+      // location.hostname was empty) AND file://:9090/jsonrpc (raw
+      // location.protocol passed through). Both are unparseable by
+      // new URL() and rejected by new WebSocket(). Rewrite anything of
+      // the form "<scheme>://:<port>" to "ws://<cfg.host>:<port>".
+      url = String(url).replace(/^[a-z]+:\/\/:(\d)/i, 'ws://' + cfg.host + ':$1');
       try {
         var u = new URL(url, location.href);
         if (isLocalWS(u.hostname)) {
