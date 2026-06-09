@@ -24,14 +24,46 @@
  * lives in TeX itself.
  */
 
-// Polyfill globalThis. Chromium 56 (Tizen 5.0) predates it (added in
-// Chrome 71). Angular's polyfills.js and main.js reference globalThis
+// --- Runtime-API polyfills for Chromium 56 (Tizen 5.0) -----------------
+// esbuild's --target=chrome56 lowers SYNTAX in TeX's bundles but does
+// not patch missing runtime APIs. Each of these has been observed to
+// throw during Angular's bootstrap on a UE55RU7020. They must run
+// before any other script — which they do, because the bootstrap is
+// the first <script> in <head> and TeX's bundles stay deferred until
+// activateDeferredScripts() fires later in this file.
+
+// globalThis — Chrome 71+. Angular's polyfills.js/main.js reference it
 // at module-load time and throw ReferenceError immediately without it.
-// Must run before any other script — which it does, because the
-// bootstrap is the first <script> in <head> and the rest of TeX's
-// scripts are deferred until activateDeferredScripts() fires below.
 if (typeof window.globalThis === 'undefined') {
   window.globalThis = window;
+}
+
+// queueMicrotask — Chrome 71+. Angular Zone.js calls this on every
+// change-detection tick; without it, every onStable emission throws
+// and nothing renders.
+if (typeof window.queueMicrotask !== 'function') {
+  window.queueMicrotask = function (cb) {
+    Promise.resolve().then(cb).catch(function (e) {
+      setTimeout(function () { throw e; }, 0);
+    });
+  };
+}
+
+// Array.prototype.flat / flatMap — Chrome 69+. Modern Angular DI
+// factories use flat() on argument lists.
+if (!Array.prototype.flat) {
+  Array.prototype.flat = function (depth) {
+    var d = depth === undefined ? 1 : Math.floor(Number(depth)) || 0;
+    if (d < 1) return Array.prototype.slice.call(this);
+    return Array.prototype.reduce.call(this, function (acc, val) {
+      return acc.concat(Array.isArray(val) ? val.flat(d - 1) : val);
+    }, []);
+  };
+}
+if (!Array.prototype.flatMap) {
+  Array.prototype.flatMap = function (cb, thisArg) {
+    return Array.prototype.map.call(this, cb, thisArg).flat();
+  };
 }
 
 (function () {
