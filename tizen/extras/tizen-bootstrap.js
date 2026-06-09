@@ -170,21 +170,17 @@ if (typeof Object.fromEntries !== 'function') {
       '</p>' +
       '<div style="height:1px;background:#232c3d;margin:0 0 24px"></div>' +
 
-      // TEMP: dev defaults for fast on-device iteration. STRIP these
-      // before any public release — pre-filling someone else's network
-      // is a footgun. Per the dev-prefs memory, the chorus2 project
-      // stripped equivalents before going public; do the same here.
       '<form id="tz-setup" autocomplete="off">' +
         section('Server') +
-        field('host',     'Kodi host or IP', existing && existing.host || '192.168.2.22', 'text',   'e.g. 192.168.1.50') +
-        field('port',     'HTTP port',       existing && existing.port || '8080',         'number', '8080') +
+        field('host',     'Kodi host or IP', existing && existing.host || '',     'text',   'e.g. 192.168.1.50') +
+        field('port',     'HTTP port',       existing && existing.port || '8080', 'number', '8080') +
 
         section('Authentication', '32px') +
         field('username', 'Username',        existing && existing.username || 'kodi', 'text',     'kodi') +
-        field('password', 'Password',        existing && existing.password || 'kodi', 'password', 'Your Kodi password') +
+        field('password', 'Password',        existing && existing.password || '',     'password', 'Your Kodi password') +
 
         section('Debug log (optional)', '32px') +
-        field('debug',    'Debug host', existing && existing.debug || '192.168.2.22:9999', 'text', 'e.g. 192.168.2.20:9999 (leave blank to disable)') +
+        field('debug',    'Debug host', existing && existing.debug || '', 'text', 'e.g. 192.168.2.20:9999 (leave blank to disable)') +
 
         '<div style="display:flex;margin-top:32px">' +
           button('save',  'Connect',  true) +
@@ -263,16 +259,6 @@ if (typeof Object.fromEntries !== 'function') {
       clearConfig();
       location.reload();
     });
-
-    // TEMP: dev convenience — auto-fire Connect on first launch when
-    // the form was pre-filled with our defaults. Saves a button press
-    // on every reinstall. STRIP before any public release.
-    if (!existing) {
-      setTimeout(function () {
-        setStatus('busy', 'Auto-connecting with dev defaults…');
-        runConnectionTest(readForm(form));
-      }, 250);
-    }
 
     function runConnectionTest(cfg) {
       setBusy(true);
