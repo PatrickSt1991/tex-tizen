@@ -147,16 +147,18 @@ if (typeof Object.fromEntries !== 'function') {
     // handler is wired with addEventListener after appendChild below.
     wrap.innerHTML =
       '<div style="display:flex;align-items:center;margin:0 0 4px">' +
-        // Logo tile in TeX warm-orange, distinct from Kodi blue so the
-        // setup screen reads as "TeX for Tizen" rather than yet another
-        // Kodi-branded wrapper.
-        '<div style="width:48px;height:48px;border-radius:11px;overflow:hidden;' +
+        // Logo tile: orange gradient with a serif "T" inside. Last
+        // attempt put an <img src="icon.png"> on top of the gradient,
+        // which covered it entirely (icon.png is the chorus2 blue
+        // placeholder). Rendering a styled letter directly inside the
+        // gradient div is what makes the colour actually visible.
+        '<div style="width:48px;height:48px;border-radius:11px;' +
         'background:linear-gradient(135deg,#f97316,#c2410c);' +
         'display:flex;align-items:center;justify-content:center;' +
-        'box-shadow:0 3px 10px rgba(249,115,22,.22)">' +
-          '<img src="icon.png" alt="" id="tz-logo" ' +
-          'style="width:48px;height:48px;display:block">' +
-        '</div>' +
+        'box-shadow:0 3px 10px rgba(249,115,22,.22);' +
+        'color:#fff;font-weight:700;font-size:30px;' +
+        'font-family:Georgia,\'Times New Roman\',serif;' +
+        'letter-spacing:-1px">T</div>' +
         '<h1 style="margin:0 0 0 18px;font-size:30px;font-weight:700;' +
         'color:#ffffff;letter-spacing:-.01em;line-height:1.1">TeX <span style="font-weight:400;color:#9aa6b8">for Tizen</span></h1>' +
       '</div>' +
@@ -202,11 +204,6 @@ if (typeof Object.fromEntries !== 'function') {
         '</p>' +
       '</form>';
     document.body.appendChild(wrap);
-
-    var logo = document.getElementById('tz-logo');
-    if (logo) {
-      logo.addEventListener('error', function () { logo.style.display = 'none'; });
-    }
 
     var form = document.getElementById('tz-setup');
     form.host.focus();
@@ -263,6 +260,16 @@ if (typeof Object.fromEntries !== 'function') {
       clearConfig();
       location.reload();
     });
+
+    // TEMP: dev convenience — auto-fire Connect on first launch when
+    // the form was pre-filled with our defaults. Saves a button press
+    // on every reinstall. STRIP before any public release.
+    if (!existing) {
+      setTimeout(function () {
+        setStatus('busy', 'Auto-connecting with dev defaults…');
+        runConnectionTest(readForm(form));
+      }, 250);
+    }
 
     function runConnectionTest(cfg) {
       setBusy(true);
@@ -569,22 +576,54 @@ if (typeof Object.fromEntries !== 'function') {
   window.TIZEN_KODI_USER = cfg.username;
   window.TIZEN_KODI_PASS = cfg.password;
 
-  // True when a URL string is same-origin (or root-relative). Anything
-  // that isn't absolute with a different host is treated as "for Kodi".
+  // True if the URL should be sent through resolveUrl — i.e. it's NOT
+  // a genuine external http(s) URL with a real hostname.
+  // Why this is permissive: TeX builds its JSON-RPC URL from
+  // window.location.protocol on a file:// page, producing strings like
+  // `file://:/jsonrpc?...` that are invalid for XHR. Older isLocalish
+  // saw the `file://` prefix and decided "absolute, leave alone",
+  // which left the broken URL to crash inside native XHR.open.
   function isLocalish(url) {
     if (!url) return false;
-    if (/^[a-z]+:\/\//i.test(url)) return false;
+    // Real http(s) URL with a non-empty hostname starts with [a-z0-9]
+    // (an IP, a name, or even a single letter). Anything else falls
+    // through to resolveUrl.
+    if (/^https?:\/\/[a-z0-9._-]/i.test(url)) return false;
     return true;
   }
 
-  // Resolve a relative path to an absolute Kodi URL, preserving query
-  // strings. Used by both XHR/fetch patches and exposed for AVPlay.
+  // Resolve a relative path (or a broken file://-derived URL) to an
+  // absolute Kodi URL. Used by both XHR/fetch patches and exposed for
+  // AVPlay.
   function resolveUrl(path) {
     if (!path) return path;
-    if (/^[a-z]+:\/\//i.test(path)) return path;
+
+    // Kodi internal image:// scheme — wrap through /image/<encoded>.
     if (/^image:\/\//i.test(path)) {
       return KODI_HOST + '/image/' + encodeURIComponent(path);
     }
+
+    // Has a scheme — could be a genuine http(s) URL, or a broken
+    // derivation like `file://:/jsonrpc?...` (no host) or `http://:9090/`
+    // (empty host). Strip scheme+authority and rebuild against KODI_HOST,
+    // unless it's a normal external http(s) URL that we should leave alone.
+    var m = path.match(/^([a-z]+):\/\/([^\/?#]*)([\/?#].*|$)/i);
+    if (m) {
+      var scheme = m[1].toLowerCase();
+      var authority = m[2];
+      var rest = m[3] || '/';
+      if (rest === '' || (rest.charAt(0) !== '/' && rest.charAt(0) !== '?' && rest.charAt(0) !== '#')) {
+        rest = '/' + rest;
+      }
+      // Genuine http(s) URL with a real host → leave alone.
+      if ((scheme === 'http' || scheme === 'https') && /^[a-z0-9._-]/i.test(authority)) {
+        return path;
+      }
+      // Otherwise (file://, http://:port, etc.) → treat as Kodi-relative.
+      return KODI_HOST + rest;
+    }
+
+    // Relative path → prepend KODI_HOST.
     return KODI_HOST + (path.charAt(0) === '/' ? path : '/' + path);
   }
   window.TIZEN_RESOLVE_URL = resolveUrl;

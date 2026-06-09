@@ -213,18 +213,24 @@ PY
 grep -q "tizen-bootstrap.js" "$INDEX" || fail "bootstrap injection failed (no tizen-bootstrap.js in built index.html)"
 grep -q "text/x-tizen-deferred" "$INDEX" || warn "no scripts were deferred — index.html might not reference any src= scripts (check $INDEX)"
 
-# --- Resize icon to 117x117 if a tool is available --------------------------
+# --- Generate (or resize) the launcher icon ---------------------------------
+# Replace the committed chorus2-blue placeholder with a fresh TeX-orange
+# tile + serif "T", matching the setup screen logo. Falls back to a
+# resize of the committed icon if ImageMagick isn't available.
 
 if command -v convert >/dev/null 2>&1; then
-    log "resizing icon to 117x117 with ImageMagick"
-    convert "$BUILD_DIR/icon.png" -resize 117x117 "$BUILD_DIR/icon.png"
+    log "generating launcher icon (orange tile + T) with ImageMagick"
+    convert -size 117x117 gradient:'#f97316-#c2410c' \
+        -gravity center -fill white -pointsize 80 \
+        -annotate +0+0 'T' \
+        "$BUILD_DIR/icon.png"
 elif command -v ffmpeg >/dev/null 2>&1; then
-    log "resizing icon to 117x117 with ffmpeg"
+    log "no ImageMagick — resizing committed icon with ffmpeg (will still look blue)"
     tmp="$BUILD_DIR/icon.tmp.png"
     ffmpeg -y -i "$BUILD_DIR/icon.png" -vf scale=117:117 "$tmp" >/dev/null 2>&1
     mv "$tmp" "$BUILD_DIR/icon.png"
 else
-    warn "no ImageMagick/ffmpeg found — shipping icon at its committed size; Tizen Studio will warn but accept"
+    warn "no ImageMagick/ffmpeg found — shipping committed icon at its committed size"
 fi
 
 log "prepare complete: $(find "$BUILD_DIR" -type f | wc -l) files in $BUILD_DIR"
